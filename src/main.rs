@@ -1,22 +1,23 @@
-use clap::Parser;
+mod manager;
+
 use std::process::ExitCode;
 
-/// Simple password manager scaffold
-#[derive(Parser)]
-#[command(author, version, about)]
-struct Cli {
-    /// Master password used to unlock the store
-    master: String,
-}
-
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    println!("Welcome to passmgr!");
+    println!("Please enter your MASTER password to unlock your credentials.");
 
-    if cli.master.trim().is_empty() {
+    let master_pwd = rpassword::prompt_password("Master Password: ")
+        .unwrap_or_else(|_| {
+            eprintln!("Error reading master password");
+            std::process::exit(1);
+        });
+
+    if master_pwd.is_empty() {
         eprintln!("Error: master password cannot be empty");
         return ExitCode::from(1);
     }
 
-    println!("Unlocked (stub).");
+    let mut manager = manager::Manager::new(master_pwd.to_string());
+    manager.run();
     ExitCode::SUCCESS
 }
