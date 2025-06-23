@@ -11,7 +11,10 @@ fn main() {
             path
         }
         Err(e) => {
-            eprintln!("Error: could not determine password database location: {}", e);
+            eprintln!(
+                "Error: could not determine password database location: {}",
+                e
+            );
             return;
         }
     };
