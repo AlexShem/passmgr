@@ -167,7 +167,7 @@ impl Manager {
         let argon2 = Argon2::default();
         let mut key = [0u8; 32]; // 256-bit key
         argon2.hash_password_into(password.as_bytes(), &salt, &mut key)
-            .expect("Failed to derive encryption key using Argon2id");
+            .map_err(|e| anyhow!("Failed to derive encryption key using Argon2id: {}", e))?;
 
         // Serialize credentials to JSON
         let credentials_json = serde_json::to_vec(&self.credentials)?;
