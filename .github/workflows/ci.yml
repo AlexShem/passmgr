@@ -1,80 +1,41 @@
-name: CI/CD Pipeline
+name: Rust CI/CD
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    name: Test
+    name: Build & Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ ubuntu-latest, windows-latest, macos-latest ]
-        rust: [ stable ]
 
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-          components: rustfmt, clippy
-
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Check code formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-
-      - name: Lint with Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+      - uses: actions/checkout@v4
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --verbose
+        run: cargo build --verbose
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose
+        run: cargo test --verbose
 
-      - name: Run integration tests
-        run: |
-          cargo build --release
-          # Add integration test that uses the CLI with sample inputs/expected outputs
-          # This would be implemented according to your testing needs
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-  # Build binaries for different platforms
-  build:
-    name: Build Release Binaries
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+  # Build platform-specific release binaries
+  build-release:
+    name: Build Release Binary
     needs: test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -90,32 +51,24 @@ jobs:
             artifact_name: passmgr-macos-amd64
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: ${{ matrix.target }}
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Build release binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      - name: Prepare artifact
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv target/${{ matrix.target }}/release/passmgr.exe ${{ matrix.artifact_name }}
+            cp target/${{ matrix.target }}/release/passmgr.exe ${{ matrix.artifact_name }}
           else
-            mv target/${{ matrix.target }}/release/passmgr ${{ matrix.artifact_name }}
+            cp target/${{ matrix.target }}/release/passmgr ${{ matrix.artifact_name }}
           fi
-        shell: bash
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.artifact_name }}
