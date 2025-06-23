@@ -277,7 +277,7 @@ impl Manager {
                             if self.credentials.is_empty() {
                                 println!("No credentials stored.");
                             } else {
-                                for (name, _) in &self.credentials {
+                                for name in self.credentials.keys() {
                                     println!("{}", name);
                                 }
                             }
