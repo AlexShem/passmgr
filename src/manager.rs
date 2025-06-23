@@ -132,7 +132,7 @@ impl Manager {
         let argon2 = Argon2::default();
         let mut key = [0u8; 32];
         argon2.hash_password_into(password.as_bytes(), &salt, &mut key)
-            .expect("Failed to derive encryption from master password using Argon2id");
+            .map_err(|e| anyhow!("Failed to derive encryption key using Argon2id: {}", e))?;
 
         // Decode nonce and encrypted data from base64
         let nonce_bytes = general_purpose::STANDARD.decode(store.encryption_nonce)?;
