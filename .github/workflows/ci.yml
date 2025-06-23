@@ -1,0 +1,122 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        rust: [ stable ]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check code formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Lint with Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --verbose
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --verbose
+
+      - name: Run integration tests
+        run: |
+          cargo build --release
+          # Add integration test that uses the CLI with sample inputs/expected outputs
+          # This would be implemented according to your testing needs
+
+  # Build binaries for different platforms
+  build:
+    name: Build Release Binaries
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: passmgr-linux-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: passmgr-windows-amd64.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: passmgr-macos-amd64
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Build release binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv target/${{ matrix.target }}/release/passmgr.exe ${{ matrix.artifact_name }}
+          else
+            mv target/${{ matrix.target }}/release/passmgr ${{ matrix.artifact_name }}
+          fi
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
