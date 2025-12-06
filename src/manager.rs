@@ -1,73 +1,26 @@
 use anyhow::{Result, anyhow};
-use argon2::Argon2;
-use base64::{Engine as _, engine::general_purpose};
-use chacha20poly1305::aead::Aead;
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
-use clap::{Parser, Subcommand};
-use rand::{TryRngCore, rngs::OsRng};
-use serde::{Deserialize, Serialize};
+use crate::credentials::Credentials;
+use crate::crypto::{decrypt, encrypt, derive_key, generate_nonce, generate_salt};
+use crate::repl::CredentialManager;
+use serde_json;
 use std::collections::HashMap;
 use std::fs;
-use std::io;
-use std::io::Write;
 use std::path::PathBuf;
-
-#[derive(Serialize, Deserialize)]
-struct EncryptedStore {
-    version: u8,
-    argon2_salt: String,      // Base64 encoded
-    encryption_nonce: String, // Base64 encoded
-    encrypted_data: String,   // Base64 encoded
-}
+use crate::storage::{
+    decode_encrypted_data, decode_nonce, decode_salt, encode_encrypted_data, encode_nonce,
+    encode_salt, load_encrypted_store, save_encrypted_store, EncryptedStore,
+};
 
 pub struct Manager {
-    credentials: HashMap<String, String>,
+    credentials: Credentials,
     pwd_db_path: Option<PathBuf>,
     master_password: Option<String>,
-}
-
-#[derive(Parser)]
-#[command(name = "passmgr")]
-#[command(version = "0.1")]
-#[command(about = "Manages your passwords", long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Add a new credential.
-    Add {
-        /// Name of the credential
-        #[arg(short, long)]
-        name: String,
-        /// Secret value of the credential
-        #[arg(short, long)]
-        secret: String,
-    },
-    /// Get a credential by name.
-    Get {
-        /// Name of the credential to retrieve
-        name: String,
-    },
-    /// Remove a credential by name.
-    #[command(alias = "rm")]
-    Remove {
-        /// Name of the credential to remove
-        name: String,
-    },
-    /// List all stored credentials.
-    List,
-    /// Quit the password manager.
-    #[command(alias = "exit")]
-    Quit,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Self {
-            credentials: HashMap::new(),
+            credentials: Credentials::new(),
             pwd_db_path: None,
             master_password: None,
         }
@@ -92,7 +45,7 @@ impl Manager {
         }
 
         self.master_password = Some(master_password);
-        self.credentials = HashMap::new();
+        self.credentials = Credentials::new();
 
         // Save empty credentials to create the file
         self.save_credentials()
@@ -124,37 +77,27 @@ impl Manager {
             .as_ref()
             .ok_or_else(|| anyhow!("Database path not set"))?;
 
-        let file_content = fs::read_to_string(path)?;
-        if file_content.trim().is_empty() {
-            return Err(anyhow!("Password file is empty"));
-        }
-
-        let store: EncryptedStore = serde_json::from_str(&file_content)?;
+        let store = load_encrypted_store(path)?;
 
         // Decode salt from base64
-        let salt = general_purpose::STANDARD.decode(store.argon2_salt)?;
+        let salt = decode_salt(&store.argon2_salt)?;
 
         // Derive key from password using Argon2id
-        let argon2 = Argon2::default();
-        let mut key = [0u8; 32];
-        argon2
-            .hash_password_into(password.as_bytes(), &salt, &mut key)
-            .map_err(|e| anyhow!("Failed to derive encryption key using Argon2id: {}", e))?;
+        let key = derive_key(&password, &salt)?;
 
         // Decode nonce and encrypted data from base64
-        let nonce_bytes = general_purpose::STANDARD.decode(store.encryption_nonce)?;
-        let encrypted_data = general_purpose::STANDARD.decode(store.encrypted_data)?;
+        let nonce_bytes = decode_nonce(&store.encryption_nonce)?;
+        let encrypted_data = decode_encrypted_data(&store.encrypted_data)?;
 
         // Decrypt the data
-        let cipher = ChaCha20Poly1305::new(&key.into());
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        let decrypted_data = cipher
-            .decrypt(nonce, encrypted_data.as_ref())
-            .map_err(|_| anyhow!("Decryption failed - invalid password"))?;
+        let nonce_array: [u8; 12] = nonce_bytes
+            .try_into()
+            .map_err(|_| anyhow!("Invalid nonce length"))?;
+        let decrypted_data = decrypt(&encrypted_data, &key, &nonce_array)?;
 
         // Deserialize the decrypted data
-        self.credentials = serde_json::from_slice(&decrypted_data)?;
+        let credentials_map: HashMap<String, String> = serde_json::from_slice(&decrypted_data)?;
+        self.credentials = Credentials::from_map(credentials_map);
 
         Ok(())
     }
@@ -171,133 +114,56 @@ impl Manager {
             .ok_or_else(|| anyhow!("Master password not set"))?;
 
         // Generate salt for Argon2id
-        let mut salt = [0u8; 16];
-        // OsRng.fill_bytes(&mut salt);
-        OsRng.try_fill_bytes(&mut salt)?;
+        let salt = generate_salt()?;
 
         // Derive encryption key from master password using Argon2id
-        let argon2 = Argon2::default();
-        let mut key = [0u8; 32]; // 256-bit key
-        argon2
-            .hash_password_into(password.as_bytes(), &salt, &mut key)
-            .map_err(|e| anyhow!("Failed to derive encryption key using Argon2id: {}", e))?;
+        let key = derive_key(password, &salt)?;
 
         // Serialize credentials to JSON
-        let credentials_json = serde_json::to_vec(&self.credentials)?;
+        let credentials_map = self.credentials.to_map();
+        let credentials_json = serde_json::to_vec(credentials_map)?;
 
         // Generate nonce for encryption
-        let mut nonce_bytes = [0u8; 12];
-        OsRng.try_fill_bytes(&mut nonce_bytes)?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce_bytes = generate_nonce()?;
 
         // Encrypt the credentials
-        let cipher = ChaCha20Poly1305::new(&key.into());
-        let encrypted_data = cipher
-            .encrypt(nonce, credentials_json.as_ref())
-            .map_err(|_| anyhow!("Encryption failed"))?;
+        let encrypted_data = encrypt(&credentials_json, &key, &nonce_bytes)?;
 
         // Create the encrypted store
         let store = EncryptedStore {
             version: 1,
-            argon2_salt: general_purpose::STANDARD.encode(salt),
-            encryption_nonce: general_purpose::STANDARD.encode(nonce),
-            encrypted_data: general_purpose::STANDARD.encode(encrypted_data),
+            argon2_salt: encode_salt(&salt),
+            encryption_nonce: encode_nonce(&nonce_bytes),
+            encrypted_data: encode_encrypted_data(&encrypted_data),
         };
 
         // Write to file
-        let json = serde_json::to_string_pretty(&store)?;
-        fs::write(path, json)?;
+        save_encrypted_store(path, &store)?;
 
         Ok(())
     }
 
     pub fn run(&mut self) -> Result<()> {
-        println!("Unlocked. Type 'help' for available commands.");
+        crate::repl::run_repl(self)
+    }
+}
 
-        let mut stdout = io::stdout();
+impl CredentialManager for Manager {
+    fn credentials(&self) -> &Credentials {
+        &self.credentials
+    }
 
-        loop {
-            print!("passmgr> ");
-            stdout.flush()?;
+    fn credentials_mut(&mut self) -> &mut Credentials {
+        &mut self.credentials
+    }
 
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input).is_err() {
-                break;
-            }
+    fn save_credentials(&self) -> Result<()> {
+        self.save_credentials()
+    }
 
-            let args: Vec<String> = match shell_words::split(&input) {
-                Ok(args) => args
-                    .iter()
-                    .map(|s| s.trim().to_string())
-                    .collect::<Vec<String>>(),
-                Err(_) => continue,
-            };
-
-            if args.is_empty() {
-                continue;
-            }
-
-            let result = Cli::try_parse_from(std::iter::once("passmgr".to_string()).chain(args));
-            match result {
-                Ok(cli) => {
-                    match cli.command {
-                        None => {
-                            continue;
-                        }
-                        Some(Commands::Add { name, secret }) => {
-                            if self.credentials.contains_key(&name) {
-                                println!("Error: '{}' already exists.", name);
-                            } else {
-                                self.credentials.insert(name.clone(), secret);
-                                if let Err(e) = self.save_credentials() {
-                                    eprintln!("Failed to save credentials: {}", e);
-                                } else {
-                                    println!("Added {}", name);
-                                }
-                            }
-                        }
-                        Some(Commands::Get { name }) => match self.credentials.get(&name) {
-                            Some(secret) => println!("{}", secret),
-                            None => {
-                                eprintln!("Error: {} not found", name);
-                            }
-                        },
-                        Some(Commands::Remove { name }) => {
-                            if self.credentials.remove(&name).is_some() {
-                                if let Err(e) = self.save_credentials() {
-                                    eprintln!("Failed to save credentials: {}", e);
-                                } else {
-                                    println!("Removed {}", name);
-                                }
-                            } else {
-                                eprintln!("Error: {} not found", name);
-                            }
-                        }
-                        Some(Commands::List) => {
-                            if self.credentials.is_empty() {
-                                println!("No credentials stored.");
-                            } else {
-                                for name in self.credentials.keys() {
-                                    println!("{}", name);
-                                }
-                            }
-                        }
-                        Some(Commands::Quit) => {
-                            println!("Exiting...");
-                            // Securely clear the master password
-                            if let Some(ref mut pwd) = self.master_password {
-                                pwd.clear();
-                            }
-                            return Ok(());
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("{}", e);
-                }
-            }
+    fn clear_master_password(&mut self) {
+        if let Some(ref mut pwd) = self.master_password {
+            pwd.clear();
         }
-
-        Ok(())
     }
 }
