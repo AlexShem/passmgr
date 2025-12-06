@@ -50,4 +50,3 @@ pub fn encode_nonce(nonce: &[u8]) -> String {
 pub fn encode_encrypted_data(data: &[u8]) -> String {
     general_purpose::STANDARD.encode(data)
 }
-

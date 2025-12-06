@@ -53,4 +53,3 @@ impl Credentials {
         self.data.clear();
     }
 }
-

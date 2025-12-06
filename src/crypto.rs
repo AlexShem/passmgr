@@ -40,4 +40,3 @@ pub fn decrypt(encrypted_data: &[u8], key: &[u8; 32], nonce: &[u8; 12]) -> Resul
         .decrypt(nonce, encrypted_data)
         .map_err(|_| anyhow!("Decryption failed - invalid password"))
 }
-
