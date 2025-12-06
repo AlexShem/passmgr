@@ -48,7 +48,7 @@ impl Manager {
         self.credentials = Credentials::new();
 
         // Save empty credentials to create the file
-        self.save_credentials()
+        self.do_save_credentials()
     }
 
     pub fn validate_master_password(&mut self, password: String) -> Result<bool> {
@@ -102,7 +102,7 @@ impl Manager {
         Ok(())
     }
 
-    fn save_credentials(&self) -> Result<()> {
+    fn do_save_credentials(&self) -> Result<()> {
         let path = self
             .pwd_db_path
             .as_ref()
@@ -158,7 +158,7 @@ impl CredentialManager for Manager {
     }
 
     fn save_credentials(&self) -> Result<()> {
-        self.save_credentials()
+        self.do_save_credentials()
     }
 
     fn clear_master_password(&mut self) {
