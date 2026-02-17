@@ -1,13 +1,39 @@
-use std::path::PathBuf;
+//! Passmgr - A secure password manager.
+//!
+//! This is the main entry point for the passmgr binary.
 
+mod config;
+mod credentials;
+mod crypto;
+mod logging;
 mod manager;
+mod shell;
+mod storage;
+mod trie;
+
+use config::{get_log_path, get_password_db};
+use log::LevelFilter;
+use logging::{LogConfig, init_logging};
+use manager::Manager;
 
 fn main() {
+    // Initialize logging
+    if let Ok(log_path) = get_log_path() {
+        let log_config = LogConfig::new(log_path)
+            .with_level(LevelFilter::Info)
+            .with_max_size(100);
+        if let Err(e) = init_logging(&log_config) {
+            eprintln!("Warning: Failed to initialize logging: {}", e);
+        }
+    }
+
+    log::info!("Passmgr starting");
     println!("Welcome to passmgr!");
 
     let pwd_db = match get_password_db() {
         Ok(path) => {
             println!("Using password database at: {}", path.display());
+            log::debug!("Database path: {}", path.display());
             path
         }
         Err(e) => {
@@ -15,11 +41,12 @@ fn main() {
                 "Error: could not determine password database location: {}",
                 e
             );
+            log::error!("Failed to get database path: {}", e);
             return;
         }
     };
 
-    let mut manager = manager::Manager::new();
+    let mut manager = Manager::new();
     manager.set_db_path(pwd_db);
 
     if manager.is_new_user() {
@@ -27,11 +54,14 @@ fn main() {
         println!("Please create a MASTER password to encrypt your credentials.");
         println!("IMPORTANT: If you forget this password, your data cannot be recovered!");
 
+        log::info!("Setting up new user");
+
         match rpassword::prompt_password("New Master Password: ") {
             Ok(pwd) => {
                 let pwd = pwd.trim().to_string();
                 if pwd.is_empty() {
                     eprintln!("Error: master password cannot be empty");
+                    log::warn!("Empty master password attempted");
                     return;
                 }
 
@@ -40,24 +70,29 @@ fn main() {
                         let confirm_pwd = confirm_pwd.trim().to_string();
                         if pwd != confirm_pwd {
                             eprintln!("Error: passwords do not match");
+                            log::warn!("Password confirmation failed");
                             return;
                         }
 
                         if let Err(e) = manager.setup_new_user(pwd) {
                             eprintln!("Error setting up new user: {}", e);
+                            log::error!("Failed to setup new user: {}", e);
                             return;
                         }
 
                         println!("New password database created successfully!");
+                        log::info!("New user setup completed");
                     }
                     Err(_) => {
                         eprintln!("Error: failed to read password confirmation");
+                        log::error!("Failed to read password confirmation");
                         return;
                     }
                 }
             }
             Err(_) => {
                 eprintln!("Error: failed to read master password");
+                log::error!("Failed to read master password");
                 return;
             }
         }
@@ -69,25 +104,30 @@ fn main() {
                 let pwd = pwd.trim().to_string();
                 if pwd.is_empty() {
                     eprintln!("Error: master password cannot be empty");
+                    log::warn!("Empty password attempted");
                     return;
                 }
 
                 match manager.validate_master_password(pwd) {
                     Ok(true) => {
                         println!("Password database unlocked successfully!");
+                        log::info!("Database unlocked");
                     }
                     Ok(false) => {
                         eprintln!("Error: invalid master password");
+                        log::warn!("Invalid password attempt");
                         return;
                     }
                     Err(e) => {
                         eprintln!("Error validating password: {}", e);
+                        log::error!("Password validation error: {}", e);
                         return;
                     }
                 }
             }
             Err(_) => {
                 eprintln!("Error: failed to read master password");
+                log::error!("Failed to read master password");
                 return;
             }
         }
@@ -95,18 +135,8 @@ fn main() {
 
     if let Err(e) = manager.run() {
         eprintln!("Error: {}", e);
+        log::error!("Shell error: {}", e);
     }
-}
 
-fn get_password_db() -> anyhow::Result<PathBuf> {
-    if let Some(home_path) = dirs_next::home_dir() {
-        let db_path = home_path.join(".passmgr").join("passwords.db");
-        if !db_path.exists() {
-            std::fs::create_dir_all(db_path.parent().unwrap())?;
-            std::fs::File::create(&db_path)?;
-        }
-        Ok(db_path)
-    } else {
-        Err(anyhow::anyhow!("Could not determine home directory"))
-    }
+    log::info!("Passmgr exiting");
 }
