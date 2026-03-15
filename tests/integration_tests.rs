@@ -310,8 +310,12 @@ fn test_remove_command() {
 #[test]
 fn test_list_command() {
     let mut credentials = Credentials::new();
-    credentials.add("key1".to_string(), "val1".to_string()).unwrap();
-    credentials.add("key2".to_string(), "val2".to_string()).unwrap();
+    credentials
+        .add("key1".to_string(), "val1".to_string())
+        .unwrap();
+    credentials
+        .add("key2".to_string(), "val2".to_string())
+        .unwrap();
     let mut trie = Trie::new();
     let registry = create_registry();
 
