@@ -63,7 +63,7 @@ impl Trie {
 
         let mut current = &mut self.root;
         for ch in word.chars() {
-            current = current.children.entry(ch).or_insert_with(TrieNode::new);
+            current = current.children.entry(ch).or_default();
         }
 
         if !current.is_end_of_word {

@@ -3,7 +3,6 @@
 //! This module handles credential management, encryption, and persistence.
 
 use anyhow::{Result, anyhow};
-use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;

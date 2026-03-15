@@ -74,19 +74,19 @@ impl LogConfig {
 /// ```
 pub fn init_logging(config: &LogConfig) -> Result<()> {
     // Ensure the parent directory exists
-    if let Some(parent) = config.path.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = config.path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent)?;
     }
 
     // Check if we need to rotate the log file
-    if config.max_size > 0 && config.path.exists() {
-        if let Ok(metadata) = std::fs::metadata(&config.path) {
-            if metadata.len() > config.max_size {
-                rotate_log(&config.path)?;
-            }
-        }
+    if config.max_size > 0
+        && config.path.exists()
+        && let Ok(metadata) = std::fs::metadata(&config.path)
+        && metadata.len() > config.max_size
+    {
+        rotate_log(&config.path)?;
     }
 
     // Open or create the log file

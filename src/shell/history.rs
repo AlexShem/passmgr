@@ -83,10 +83,10 @@ impl HistoryConfig {
     #[allow(unused)]
     pub fn save_from_default_editor(&self, editor: &mut rustyline::DefaultEditor) -> Result<()> {
         // Ensure parent directory exists
-        if let Some(parent) = self.path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = self.path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         editor.save_history(&self.path)?;
@@ -131,12 +131,11 @@ impl HistoryFilter {
         }
 
         // Ignore duplicate consecutive entries (if configured)
-        if self.config.ignore_dups {
-            if let Some(ref last) = self.last_entry {
-                if last == entry {
-                    return false;
-                }
-            }
+        if self.config.ignore_dups
+            && let Some(ref last) = self.last_entry
+            && last == entry
+        {
+            return false;
         }
 
         // Update last entry

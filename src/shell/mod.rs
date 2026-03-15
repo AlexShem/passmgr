@@ -257,14 +257,12 @@ impl Shell {
                     }
 
                     // Save if credentials were modified
-                    if was_modified {
-                        if let Err(e) = save_fn(credentials) {
-                            eprintln!(
-                                "{}",
-                                OutputHighlighter::error(&format!("Failed to save: {}", e))
-                            );
-                            log::error!("Failed to save credentials: {}", e);
-                        }
+                    if was_modified && let Err(e) = save_fn(credentials) {
+                        eprintln!(
+                            "{}",
+                            OutputHighlighter::error(&format!("Failed to save: {}", e))
+                        );
+                        log::error!("Failed to save credentials: {}", e);
                     }
                 }
                 Err(ReadlineError::Interrupted) => {
@@ -286,11 +284,12 @@ impl Shell {
         }
 
         // Save history
-        if let Some(parent) = self.config.history.path.parent() {
-            if !parent.exists() {
-                let _ = std::fs::create_dir_all(parent);
-            }
+        if let Some(parent) = self.config.history.path.parent()
+            && !parent.exists()
+        {
+            let _ = std::fs::create_dir_all(parent);
         }
+
         if let Err(e) = editor.save_history(&self.config.history.path) {
             log::warn!("Failed to save history: {}", e);
         } else {

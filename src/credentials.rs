@@ -53,3 +53,9 @@ impl Credentials {
         self.data.clear();
     }
 }
+
+impl Default for Credentials {
+    fn default() -> Self {
+        Self::new()
+    }
+}
