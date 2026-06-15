@@ -1,6 +1,7 @@
 //! Individual command implementations.
 
 mod add;
+mod clear;
 mod get;
 mod help;
 mod list;
@@ -8,6 +9,7 @@ mod quit;
 mod remove;
 
 pub use add::AddCommand;
+pub use clear::ClearCommand;
 pub use get::GetCommand;
 pub use help::HelpCommand;
 pub use list::ListCommand;
@@ -24,6 +26,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Arc::new(GetCommand));
     registry.register(Arc::new(RemoveCommand));
     registry.register(Arc::new(ListCommand));
+    registry.register(Arc::new(ClearCommand));
     registry.register(Arc::new(HelpCommand));
     registry.register(Arc::new(QuitCommand));
 }

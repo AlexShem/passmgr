@@ -19,29 +19,46 @@ impl Command for AddCommand {
     }
 
     fn usage(&self) -> &str {
-        "add <name> <secret>"
+        "add <name> [secret]"
     }
 
     fn help(&self) -> &str {
         "Add a new credential to the store.\n\n\
          Arguments:\n  \
            <name>   - Unique identifier for the credential\n  \
-           <secret> - The secret value to store\n\n\
+           [secret] - Optional secret value. If omitted, you are prompted for\n  \
+                      it with hidden input (recommended, keeps it off-screen\n  \
+                      and out of the command history).\n\n\
          Examples:\n  \
+           add github                 (prompts for the secret)\n  \
            add github mypassword123\n  \
            add \"my email\" \"secret with spaces\""
     }
 
+    fn record_history(&self) -> bool {
+        // An `add name secret` line carries a plaintext secret; never persist it.
+        false
+    }
+
     fn execute(&self, args: &[&str], ctx: &mut ShellContext) -> CommandResult {
-        if args.len() < 2 {
+        if args.is_empty() {
             return CommandResult::error(format!(
-                "Usage: {}\nMissing required arguments",
+                "Usage: {}\nMissing credential name",
                 self.usage()
             ));
         }
 
         let name = args[0].to_string();
-        let secret = args[1..].join(" ");
+        let secret = if args.len() >= 2 {
+            // Inline secret (kept for scripting/compat); spaces are preserved.
+            args[1..].join(" ")
+        } else {
+            // Prompt with hidden input.
+            match crate::prompt::prompt_secret() {
+                Ok(s) => s,
+                Err(e) => return CommandResult::error(e.to_string()),
+            }
+        };
 
         log::debug!("Adding credential: {}", name);
 
@@ -66,7 +83,7 @@ impl Command for AddCommand {
     }
 
     fn min_args(&self) -> usize {
-        2
+        1
     }
 
     fn max_args(&self) -> Option<usize> {

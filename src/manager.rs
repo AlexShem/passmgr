@@ -13,9 +13,10 @@ use crate::crypto::{decrypt, derive_key, encrypt, generate_nonce, generate_salt}
 use crate::shell::history::HistoryConfig;
 use crate::shell::{Shell, ShellConfig};
 use crate::storage::{
-    EncryptedStore, decode_encrypted_data, decode_nonce, decode_salt, encode_encrypted_data,
-    encode_nonce, encode_salt, load_encrypted_store, save_encrypted_store,
+    CURRENT_STORE_VERSION, EncryptedStore, decode_encrypted_data, decode_nonce, decode_salt,
+    encode_encrypted_data, encode_nonce, encode_salt, load_encrypted_store, save_encrypted_store,
 };
+use zeroize::Zeroize;
 
 /// The password manager.
 pub struct Manager {
@@ -109,10 +110,11 @@ impl Manager {
         let nonce_array: [u8; 12] = nonce_bytes
             .try_into()
             .map_err(|_| anyhow!("Invalid nonce length"))?;
-        let decrypted_data = decrypt(&encrypted_data, &key, &nonce_array)?;
+        let mut decrypted_data = decrypt(&encrypted_data, &key, &nonce_array)?;
 
-        // Deserialize the decrypted data
+        // Deserialize the decrypted data, then wipe the plaintext buffer.
         let credentials_map: HashMap<String, String> = serde_json::from_slice(&decrypted_data)?;
+        decrypted_data.zeroize();
         self.credentials = Credentials::from_map(credentials_map);
 
         log::info!("Loaded {} credentials", self.credentials.list().len());
@@ -120,52 +122,17 @@ impl Manager {
     }
 
     /// Saves credentials to disk.
+    ///
+    /// Delegates to [`save_credentials_impl`] so that this method, the REPL's
+    /// save callback, and the non-interactive CLI all share one code path.
     pub fn save_credentials(&self) -> Result<()> {
-        let path = self
-            .pwd_db_path
-            .as_ref()
-            .ok_or_else(|| anyhow!("Database path not set"))?;
-
-        let password = self
-            .master_password
-            .as_ref()
-            .ok_or_else(|| anyhow!("Master password not set"))?;
-
-        // Generate salt for Argon2id
-        let salt = generate_salt()?;
-
-        // Derive encryption key from master password using Argon2id
-        let key = derive_key(password, &salt)?;
-
-        // Serialize credentials to JSON
-        let credentials_map = self.credentials.to_map();
-        let credentials_json = serde_json::to_vec(credentials_map)?;
-
-        // Generate nonce for encryption
-        let nonce_bytes = generate_nonce()?;
-
-        // Encrypt the credentials
-        let encrypted_data = encrypt(&credentials_json, &key, &nonce_bytes)?;
-
-        // Create the encrypted store
-        let store = EncryptedStore {
-            version: 1,
-            argon2_salt: encode_salt(&salt),
-            encryption_nonce: encode_nonce(&nonce_bytes),
-            encrypted_data: encode_encrypted_data(&encrypted_data),
-        };
-
-        // Write to file
-        save_encrypted_store(path, &store)?;
-
-        log::info!("Saved {} credentials", self.credentials.list().len());
-        Ok(())
+        save_credentials_impl(&self.pwd_db_path, &self.master_password, &self.credentials)
     }
 
     /// Clears the master password from memory.
     pub fn clear_master_password(&mut self) {
         if let Some(ref mut pwd) = self.master_password {
-            pwd.clear();
+            pwd.zeroize();
         }
         self.master_password = None;
     }
@@ -234,17 +201,18 @@ fn save_credentials_impl(
 
     // Serialize credentials to JSON
     let credentials_map = credentials.to_map();
-    let credentials_json = serde_json::to_vec(credentials_map)?;
+    let mut credentials_json = serde_json::to_vec(credentials_map)?;
 
     // Generate nonce for encryption
     let nonce_bytes = generate_nonce()?;
 
-    // Encrypt the credentials
+    // Encrypt the credentials, then wipe the plaintext buffer.
     let encrypted_data = encrypt(&credentials_json, &key, &nonce_bytes)?;
+    credentials_json.zeroize();
 
     // Create the encrypted store
     let store = EncryptedStore {
-        version: 1,
+        version: CURRENT_STORE_VERSION,
         argon2_salt: encode_salt(&salt),
         encryption_nonce: encode_nonce(&nonce_bytes),
         encrypted_data: encode_encrypted_data(&encrypted_data),

@@ -1,7 +1,18 @@
 use std::collections::HashMap;
+use zeroize::Zeroize;
 
 pub struct Credentials {
     data: HashMap<String, String>,
+}
+
+impl Drop for Credentials {
+    /// Wipes secret values from memory when the store is dropped, so plaintext
+    /// secrets don't linger in freed heap allocations.
+    fn drop(&mut self) {
+        for value in self.data.values_mut() {
+            value.zeroize();
+        }
+    }
 }
 
 impl Credentials {
