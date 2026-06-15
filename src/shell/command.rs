@@ -108,6 +108,15 @@ pub trait Command: Send + Sync {
         vec![]
     }
 
+    /// Whether lines invoking this command may be written to the history file.
+    ///
+    /// Commands that carry a secret on the line (or whose arguments are
+    /// sensitive) override this to `false` so the secret never lands in the
+    /// plaintext `~/.passmgr/history` file.
+    fn record_history(&self) -> bool {
+        true
+    }
+
     /// Returns the minimum number of required arguments.
     fn min_args(&self) -> usize {
         0

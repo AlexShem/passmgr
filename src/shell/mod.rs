@@ -195,8 +195,13 @@ impl Shell {
         // Create the helper
         let helper = PassmgrHelper::new(Arc::clone(&self.registry), Arc::clone(&self.key_trie));
 
-        // Create the editor with our custom helper
-        let mut editor: Editor<PassmgrHelper, FileHistory> = Editor::new()?;
+        // Create the editor with our custom helper. `CompletionType::List`
+        // makes TAB print the full set of candidates instead of cycling through
+        // them one at a time.
+        let config = rustyline::Config::builder()
+            .completion_type(rustyline::CompletionType::List)
+            .build();
+        let mut editor: Editor<PassmgrHelper, FileHistory> = Editor::with_config(config)?;
         editor.set_helper(Some(helper));
 
         // Configure history
@@ -226,8 +231,18 @@ impl Shell {
                         continue;
                     }
 
-                    // Add to history
-                    let _ = editor.add_history_entry(line);
+                    // Add to history, unless the command opts out (e.g. `add`
+                    // and `get`, whose lines may contain a plaintext secret).
+                    // An unknown command carries no secret, so record it.
+                    let cmd_name = line.split_whitespace().next().unwrap_or("");
+                    let record = self
+                        .registry
+                        .get(cmd_name)
+                        .map(|cmd| cmd.record_history())
+                        .unwrap_or(true);
+                    if record {
+                        let _ = editor.add_history_entry(line);
+                    }
 
                     // Parse and execute command
                     let mut key_trie_guard = self
@@ -392,7 +407,7 @@ mod tests {
         let result = shell.execute_line("add testkey testsecret", &mut credentials);
         assert!(matches!(result, CommandResult::Success(_)));
 
-        let result = shell.execute_line("get testkey", &mut credentials);
+        let result = shell.execute_line("get testkey --show", &mut credentials);
         match result {
             CommandResult::Success(Some(secret)) => assert_eq!(secret, "testsecret"),
             _ => panic!("Expected success with secret"),

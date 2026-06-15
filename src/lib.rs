@@ -3,11 +3,13 @@
 //! This library provides the core functionality for the passmgr password manager,
 //! including credential storage, encryption, and a shell-like interactive interface.
 
+pub mod clipboard;
 pub mod config;
 pub mod credentials;
 pub mod crypto;
 pub mod logging;
 pub mod manager;
+pub mod prompt;
 pub mod shell;
 pub mod storage;
 pub mod trie;

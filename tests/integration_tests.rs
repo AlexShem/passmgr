@@ -230,7 +230,6 @@ fn test_add_command() {
 
     assert!(matches!(result, CommandResult::Success(_)));
     assert!(ctx.modified);
-    drop(ctx);
     assert_eq!(credentials.get("testkey"), Some(&"testsecret".to_string()));
 }
 
@@ -264,7 +263,8 @@ fn test_get_command() {
     let mut ctx = ShellContext::new(&mut credentials, &mut trie).with_registry(&registry);
 
     let get_cmd = registry.get("get").expect("Get command should exist");
-    let result = get_cmd.execute(&["mykey"], &mut ctx);
+    // --show prints the secret; without it the default copies to the clipboard.
+    let result = get_cmd.execute(&["mykey", "--show"], &mut ctx);
 
     match result {
         CommandResult::Success(Some(secret)) => assert_eq!(secret, "mysecret"),
@@ -303,7 +303,6 @@ fn test_remove_command() {
 
     assert!(matches!(result, CommandResult::Success(_)));
     assert!(ctx.modified);
-    drop(ctx);
     assert!(credentials.get("toremove").is_none());
 }
 

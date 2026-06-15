@@ -170,7 +170,7 @@ mod tests {
         match result {
             CommandResult::Success(Some(msg)) => {
                 assert!(msg.contains("ADD"));
-                assert!(msg.contains("add <name> <secret>"));
+                assert!(msg.contains("add <name> [secret]"));
             }
             _ => panic!("Expected success with add help"),
         }
